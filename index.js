@@ -23,7 +23,7 @@ const ReactDidact = {
 }
 
 // when babel transpiles the JSX it will use the function we define.
-/** @jsx Didact.createElement */
+/** @jsx ReactDidact.createElement */
 const element = (
   <div id="foo">
     <a>bar</a>
