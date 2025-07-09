@@ -26,7 +26,7 @@ function assignProps(dom, props) {
 }
 
 function createDom(fiber) {
-	const { dom, props } = fiber;
+	const { props } = fiber;
 	const dom = element.type === "TEXT_ELEMENT" ? document.createTextNode("") : document.createElement(element.type);
 	assignProps(dom, props);
 
