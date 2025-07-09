@@ -27,7 +27,7 @@ function assignProps(dom, props) {
 
 function createDom(fiber) {
 	const { props } = fiber;
-	const dom = element.type === "TEXT_ELEMENT" ? document.createTextNode("") : document.createElement(element.type);
+	const dom = fiber.type === "TEXT_ELEMENT" ? document.createTextNode("") : document.createElement(fiber.type);
 	assignProps(dom, props);
 
 	return dom;
@@ -51,10 +51,8 @@ let wipRoot = null;
 let deletions = null
 
 const isEvent = key => key.startsWith("on")
-const isProperty = key =>
-	key !== "children" && !isEvent(key)
-const isNew = (prev, next) => key =>
-	prev[key] !== next[key]
+const isProperty = key => key !== "children" && !isEvent(key)
+const isNew = (prev, next) => key => prev[key] !== next[key]
 const isGone = (prev, next) => key => !(key in next)
 function updateDom(dom, prevProps, nextProps) {
 	//Remove old or changed event listeners
@@ -62,7 +60,7 @@ function updateDom(dom, prevProps, nextProps) {
 		.filter(isEvent)
 		.filter(
 			key =>
-				!(key in nextProps) ||
+				isGone(prevProps, nextProps)(key) ||
 				isNew(prevProps, nextProps)(key)
 		)
 		.forEach(name => {
@@ -128,7 +126,6 @@ function commitWork(fiber) {
 	} else if (fiber.effectTag === "DELETION") {
 		domParent.removeChild(fiber.dom)
 	}
-	domParent.appendChild(fiber.dom);
 	commitWork(fiber.child);
 	commitWork(fiber.sibling);
 }
@@ -157,17 +154,14 @@ requestIdleCallback(workLoop);
 
 function reconcileChildren(wipFiber, elements) {
 	let index = 0;
-	let oldFiber = wipFiber.alternate?.child;
+	let oldFiber = wipFiber.alternate?.child ?? null;
 	let prevSibling = null;
 
 	while (index < elements.length || oldFiber !== null) {
 		const element = elements[index];
 		let newFiber = null;
 
-		const sameType =
-			oldFiber &&
-			element &&
-			element.type == oldFiber.type
+		const sameType = oldFiber && element && element.type == oldFiber.type;
 
 		if (sameType) {
 			newFiber = {
