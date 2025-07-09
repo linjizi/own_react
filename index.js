@@ -13,9 +13,7 @@ function createElement(type, props, ...children) {
 		type,
 		props: {
 			...props,
-			children: children.map((child) =>
-				typeof child === "object" ? child : createTextElement(child)
-			),
+			children: children.map((child) => (typeof child === "object" ? child : createTextElement(child))),
 		},
 	};
 }
@@ -30,38 +28,63 @@ function assignProps(dom, props) {
 function createDom(fiber) {
 	const { dom, props } = fiber;
 	const dom = element.type === "TEXT_ELEMENT" ? document.createTextNode("") : document.createElement(element.type);
-	assignProps(dom, props)
+	assignProps(dom, props);
 
 	return dom;
 }
 
 function render(element, container) {
-	nextUnitOfWork = {
+	wipRoot = {
 		dom: container,
 		props: {
 			children: [element],
 		},
-	}
+		alternate: currentRoot,
+	};
+	nextUnitOfWork = wipRoot;
 }
 
-let nextUnitOfWork = null
+let nextUnitOfWork = null;
+let currentRoot = null;
+let wipRoot = null;
+
+function commitRoot() {
+	commitWork(wipRoot.child);
+	currentRoot = wipRoot;
+	wipRoot = null;
+}
+
+function commitWork(fiber) {
+	if (!fiber) {
+		return;
+	}
+	const domParent = fiber.parent.dom;
+	domParent.appendChild(fiber.dom);
+	commitWork(fiber.child);
+	commitWork(fiber.sibling);
+}
 
 function workLoop(deadline) {
-	let shouldYield = false
+	let shouldYield = false;
 	while (nextUnitOfWork && !shouldYield) {
-		nextUnitOfWork = performUnitOfWork(nextUnitOfWork)
+		nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
 		/*
 			返回当前空闲期间剩余的估计毫秒数
 			若时间大于1ms，继续执行下一个工作单元
 			时间小于1ms，退出
 		*/
-		shouldYield = deadline.timeRemaining() < 1
+		shouldYield = deadline.timeRemaining() < 1;
 	}
+
+	if (!nextUnitOfWork && wipRoot) {
+		commitRoot();
+	}
+
 	// 下一次空闲时间执行
-	requestIdleCallback(workLoop)
+	requestIdleCallback(workLoop);
 }
 
-requestIdleCallback(workLoop)
+requestIdleCallback(workLoop);
 
 function performUnitOfWork(fiber) {
 	if (!fiber.dom) {
@@ -86,24 +109,23 @@ function performUnitOfWork(fiber) {
 			dom: null,
 		}
 		if (index === 0) {
-			fiber.child = newFiber
+			wipFiber.child = newFiber;
 		} else {
-			prevSibling.sibling = newFiber
+			prevSibling.sibling = newFiber;
 		}
 
 		prevSibling = newFiber
 		index++
 	}
 	if (fiber.child) {
-		return fiber.child
+		return fiber.child;
 	}
-	let nextFiber = fiber
+	let nextFiber = fiber;
 	while (nextFiber) {
 		if (nextFiber.sibling) {
-			return nextFiber.sibling
+			return nextFiber.sibling;
 		}
-		nextFiber = nextFiber.parent
-
+		nextFiber = nextFiber.parent;
 	}
 }
 
