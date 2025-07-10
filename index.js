@@ -1,3 +1,18 @@
+
+function createElement(type, props, ...children) {
+	return {
+		type,
+		props: {
+			...props,
+			children: children.map(child =>
+				typeof child === "object"
+					? child
+					: createTextElement(child)
+			),
+		},
+	}
+}
+
 function createTextElement(text) {
 	return {
 		type: "TEXT_ELEMENT",
@@ -5,54 +20,25 @@ function createTextElement(text) {
 			nodeValue: text,
 			children: [],
 		},
-	};
-}
-
-function createElement(type, props, ...children) {
-	return {
-		type,
-		props: {
-			...props,
-			children: children.map((child) => (typeof child === "object" ? child : createTextElement(child))),
-		},
-	};
-}
-
-function assignProps(dom, props) {
-	const propsEntries = Object.entries(props);
-	for (const [key, value] of propsEntries) {
-		dom[key] = value;
 	}
 }
 
 function createDom(fiber) {
-	const { props } = fiber;
-	const dom = fiber.type === "TEXT_ELEMENT" ? document.createTextNode("") : document.createElement(fiber.type);
-	assignProps(dom, props);
+	const dom =
+		fiber.type == "TEXT_ELEMENT"
+			? document.createTextNode("")
+			: document.createElement(fiber.type)
 
-	return dom;
+	updateDom(dom, {}, fiber.props)
+
+	return dom
 }
-
-function render(element, container) {
-	wipRoot = {
-		dom: container,
-		props: {
-			children: [element],
-		},
-		alternate: currentRoot,
-	};
-	deletions = []
-	nextUnitOfWork = wipRoot;
-}
-
-let nextUnitOfWork = null;
-let currentRoot = null;
-let wipRoot = null;
-let deletions = null
 
 const isEvent = key => key.startsWith("on")
-const isProperty = key => key !== "children" && !isEvent(key)
-const isNew = (prev, next) => key => prev[key] !== next[key]
+const isProperty = key =>
+	key !== "children" && !isEvent(key)
+const isNew = (prev, next) => key =>
+	prev[key] !== next[key]
 const isGone = (prev, next) => key => !(key in next)
 function updateDom(dom, prevProps, nextProps) {
 	//Remove old or changed event listeners
@@ -60,7 +46,7 @@ function updateDom(dom, prevProps, nextProps) {
 		.filter(isEvent)
 		.filter(
 			key =>
-				isGone(prevProps, nextProps)(key) ||
+				!(key in nextProps) ||
 				isNew(prevProps, nextProps)(key)
 		)
 		.forEach(name => {
@@ -71,6 +57,14 @@ function updateDom(dom, prevProps, nextProps) {
 				eventType,
 				prevProps[name]
 			)
+		})
+
+	// Remove old properties
+	Object.keys(prevProps)
+		.filter(isProperty)
+		.filter(isGone(prevProps, nextProps))
+		.forEach(name => {
+			dom[name] = ""
 		})
 
 	// Set new or changed properties
@@ -98,17 +92,22 @@ function updateDom(dom, prevProps, nextProps) {
 
 function commitRoot() {
 	deletions.forEach(commitWork)
-	commitWork(wipRoot.child);
-	currentRoot = wipRoot;
-	wipRoot = null;
+	commitWork(wipRoot.child)
+	currentRoot = wipRoot
+	wipRoot = null
 }
 
 function commitWork(fiber) {
-
 	if (!fiber) {
-		return;
+		return
 	}
-	const domParent = fiber.parent.dom;
+
+	let domParentFiber = fiber.parent
+	while (!domParentFiber.dom) {
+		domParentFiber = domParentFiber.parent
+	}
+	const domParent = domParentFiber.dom
+
 	if (
 		fiber.effectTag === "PLACEMENT" &&
 		fiber.dom != null
@@ -124,44 +123,142 @@ function commitWork(fiber) {
 			fiber.props
 		)
 	} else if (fiber.effectTag === "DELETION") {
-		domParent.removeChild(fiber.dom)
+		commitDeletion(fiber, domParent)
 	}
-	commitWork(fiber.child);
-	commitWork(fiber.sibling);
+
+	commitWork(fiber.child)
+	commitWork(fiber.sibling)
 }
 
+function commitDeletion(fiber, domParent) {
+	if (fiber.dom) {
+		domParent.removeChild(fiber.dom)
+	} else {
+		commitDeletion(fiber.child, domParent)
+	}
+}
+
+function render(element, container) {
+	wipRoot = {
+		dom: container,
+		props: {
+			children: [element],
+		},
+		alternate: currentRoot,
+	}
+	deletions = []
+	nextUnitOfWork = wipRoot
+}
+
+let nextUnitOfWork = null
+let currentRoot = null
+let wipRoot = null
+let deletions = null
+
 function workLoop(deadline) {
-	let shouldYield = false;
+	let shouldYield = false
 	while (nextUnitOfWork && !shouldYield) {
-		nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
-		/*
-			返回当前空闲期间剩余的估计毫秒数
-			若时间大于1ms，继续执行下一个工作单元
-			时间小于1ms，退出
-		*/
-		shouldYield = deadline.timeRemaining() < 1;
+		nextUnitOfWork = performUnitOfWork(
+			nextUnitOfWork
+		)
+		shouldYield = deadline.timeRemaining() < 1
 	}
 
 	if (!nextUnitOfWork && wipRoot) {
-		commitRoot();
+		commitRoot()
 	}
 
-	// 下一次空闲时间执行
-	requestIdleCallback(workLoop);
+	requestIdleCallback(workLoop)
 }
 
-requestIdleCallback(workLoop);
+requestIdleCallback(workLoop)
+
+function performUnitOfWork(fiber) {
+	const isFunctionComponent =
+		fiber.type instanceof Function
+	if (isFunctionComponent) {
+		updateFunctionComponent(fiber)
+	} else {
+		updateHostComponent(fiber)
+	}
+	if (fiber.child) {
+		return fiber.child
+	}
+	let nextFiber = fiber
+	while (nextFiber) {
+		if (nextFiber.sibling) {
+			return nextFiber.sibling
+		}
+		nextFiber = nextFiber.parent
+	}
+}
+
+let wipFiber = null
+let hookIndex = null
+
+function updateFunctionComponent(fiber) {
+	wipFiber = fiber
+	hookIndex = 0
+	wipFiber.hooks = []
+	const children = [fiber.type(fiber.props)]
+	reconcileChildren(fiber, children)
+}
+
+function useState(initial) {
+	const oldHook =
+		wipFiber.alternate &&
+		wipFiber.alternate.hooks &&
+		wipFiber.alternate.hooks[hookIndex]
+	const hook = {
+		state: oldHook ? oldHook.state : initial,
+		queue: [],
+	}
+
+	const actions = oldHook ? oldHook.queue : []
+	actions.forEach(action => {
+		hook.state = action(hook.state)
+	})
+
+	const setState = action => {
+		hook.queue.push(action)
+		wipRoot = {
+			dom: currentRoot.dom,
+			props: currentRoot.props,
+			alternate: currentRoot,
+		}
+		nextUnitOfWork = wipRoot
+		deletions = []
+	}
+
+	wipFiber.hooks.push(hook)
+	hookIndex++
+	return [hook.state, setState]
+}
+
+function updateHostComponent(fiber) {
+	if (!fiber.dom) {
+		fiber.dom = createDom(fiber)
+	}
+	reconcileChildren(fiber, fiber.props.children)
+}
 
 function reconcileChildren(wipFiber, elements) {
-	let index = 0;
-	let oldFiber = wipFiber.alternate?.child ?? null;
-	let prevSibling = null;
+	let index = 0
+	let oldFiber =
+		wipFiber.alternate && wipFiber.alternate.child
+	let prevSibling = null
 
-	while (index < elements.length || oldFiber !== null) {
-		const element = elements[index];
-		let newFiber = null;
+	while (
+		index < elements.length ||
+		oldFiber != null
+	) {
+		const element = elements[index]
+		let newFiber = null
 
-		const sameType = oldFiber && element && element.type == oldFiber.type;
+		const sameType =
+			oldFiber &&
+			element &&
+			element.type == oldFiber.type
 
 		if (sameType) {
 			newFiber = {
@@ -191,54 +288,33 @@ function reconcileChildren(wipFiber, elements) {
 		if (oldFiber) {
 			oldFiber = oldFiber.sibling
 		}
+
 		if (index === 0) {
-			wipFiber.child = newFiber;
-		} else {
-			prevSibling.sibling = newFiber;
+			wipFiber.child = newFiber
+		} else if (element) {
+			prevSibling.sibling = newFiber
 		}
 
-		prevSibling = newFiber;
-		index++;
+		prevSibling = newFiber
+		index++
 	}
 }
 
-function performUnitOfWork(fiber) {
-	if (!fiber.dom) {
-		fiber.dom = createDom(fiber);
-	}
-
-	const elements = fiber.props.children;
-
-	reconcileChildren(fiber, elements);
-
-	if (fiber.child) {
-		return fiber.child;
-	}
-	let nextFiber = fiber;
-	while (nextFiber) {
-		if (nextFiber.sibling) {
-			return nextFiber.sibling;
-		}
-		nextFiber = nextFiber.parent;
-	}
-}
-
-const ReactDidact = {
+const Didact = {
 	createElement,
 	render,
-};
+	useState,
+}
 
-// when babel transpiles the JSX it will use the function we define.
-/** @jsx ReactDidact.createElement */
-const element = (
-	<div id="foo">
-		<a>bar</a>
-		<b />
-	</div>
-);
-
-// 上述jsx通过babel转译后
-// const element = ReactDidact.createElement("div", { id: "foo" }, ReactDidact.createElement("a", null, "bar"), ReactDidact.createElement("b"));
-
-const container = document.getElementById("root");
-ReactDidact.render(element, container);
+/** @jsx Didact.createElement */
+function Counter() {
+	const [state, setState] = Didact.useState(1)
+	return (
+		<h1 onClick={() => setState(c => c + 1)}>
+			Count: {state}
+		</h1>
+	)
+}
+const element = <Counter />
+const container = document.getElementById("root")
+Didact.render(element, container)
