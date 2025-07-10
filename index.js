@@ -170,7 +170,7 @@ function workLoop(deadline) {
 
 	requestIdleCallback(workLoop)
 }
-
+// workLoop中继续开启requestIdleCallback保证了每次在浏览器空闲时间都会检测是否存在工作单元需要执行
 requestIdleCallback(workLoop)
 
 function performUnitOfWork(fiber) {
@@ -194,6 +194,7 @@ function performUnitOfWork(fiber) {
 }
 
 let wipFiber = null
+// 保证组件在re-render重新调用函数组件时可以获取到对应的历史hook
 let hookIndex = null
 
 function updateFunctionComponent(fiber) {
@@ -232,6 +233,7 @@ function useState(initial) {
 
 	wipFiber.hooks.push(hook)
 	hookIndex++
+	// TODO 每次都会返回一个新的setState，react则保持稳定
 	return [hook.state, setState]
 }
 
